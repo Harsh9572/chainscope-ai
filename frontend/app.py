@@ -104,6 +104,53 @@ table_data = pd.DataFrame({
 })
 
 st.dataframe(table_data, use_container_width=True)
+# ---------------- WALLET ANALYZER ----------------
+
+st.markdown("---")
+
+st.header("🧠 Wallet Intelligence Analyzer")
+
+wallet_address = st.text_input(
+    "Enter Ethereum Wallet Address"
+)
+
+if wallet_address:
+
+    wallet_api = f"http://127.0.0.1:8000/api/wallet/{wallet_address}"
+
+    wallet_response = requests.get(wallet_api)
+
+    wallet_data = wallet_response.json()
+
+    transactions = wallet_data.get("result", [])
+
+    if transactions:
+
+        st.success("Wallet data fetched successfully")
+
+        tx_table = []
+
+        for tx in transactions[:10]:
+
+            tx_table.append({
+                "Hash": tx["hash"][:12] + "...",
+                "From": tx["from"][:10] + "...",
+                "To": tx["to"][:10] + "...",
+                "Value (ETH)": round(
+                    int(tx["value"]) / 10**18,
+                    5
+                )
+            })
+
+        tx_df = pd.DataFrame(tx_table)
+
+        st.dataframe(
+            tx_df,
+            use_container_width=True
+        )
+
+    else:
+        st.warning("No transactions found")
 
 # ---------------- FOOTER ----------------
 
