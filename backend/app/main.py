@@ -58,3 +58,23 @@ def wallet_analysis(wallet_address: str):
     response = requests.get(url, params=params)
 
     return response.json()
+# ---------------- TOKEN ANALYTICS ----------------
+
+@app.get("/api/token/{token_id}")
+def token_analytics(token_id: str):
+
+    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+
+    response = requests.get(url)
+
+    data = response.json()
+
+    return {
+        "name": data["name"],
+        "symbol": data["symbol"],
+        "current_price": data["market_data"]["current_price"]["usd"],
+        "market_cap": data["market_data"]["market_cap"]["usd"],
+        "total_volume": data["market_data"]["total_volume"]["usd"],
+        "high_24h": data["market_data"]["high_24h"]["usd"],
+        "low_24h": data["market_data"]["low_24h"]["usd"]
+    }

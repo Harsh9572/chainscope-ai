@@ -155,5 +155,75 @@ if wallet_address:
 # ---------------- FOOTER ----------------
 
 st.markdown("---")
+# ---------------- TOKEN ANALYTICS ----------------
 
+st.markdown("---")
+
+st.header("📈 Token Analytics")
+
+token_input = st.text_input(
+    "Enter Token ID (example: bitcoin, ethereum, solana)"
+)
+
+if token_input:
+
+    token_api = f"http://127.0.0.1:8000/api/token/{token_input}"
+
+    token_response = requests.get(token_api)
+
+    token_data = token_response.json()
+
+    st.success(f"Showing analytics for {token_data['name']}")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "Current Price",
+            f"${token_data['current_price']:,}"
+        )
+
+        st.metric(
+            "24H High",
+            f"${token_data['high_24h']:,}"
+        )
+
+    with col2:
+        st.metric(
+            "Market Cap",
+            f"${token_data['market_cap']:,}"
+        )
+
+        st.metric(
+            "24H Low",
+            f"${token_data['low_24h']:,}"
+        )
+
+    st.metric(
+        "Total Volume",
+        f"${token_data['total_volume']:,}"
+    )
+
+    token_chart = pd.DataFrame({
+        "Metric": [
+            "Market Cap",
+            "Volume"
+        ],
+        "Value": [
+            token_data["market_cap"],
+            token_data["total_volume"]
+        ]
+    })
+
+    fig2 = px.bar(
+        token_chart,
+        x="Metric",
+        y="Value",
+        title=f"{token_data['name']} Analytics"
+    )
+
+    st.plotly_chart(
+        fig2,
+        use_container_width=True
+    )
 st.caption("Built with FastAPI + Streamlit + Blockchain APIs")
