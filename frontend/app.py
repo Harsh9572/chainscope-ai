@@ -151,10 +151,6 @@ if wallet_address:
 
     else:
         st.warning("No transactions found")
-
-# ---------------- FOOTER ----------------
-
-st.markdown("---")
 # ---------------- TOKEN ANALYTICS ----------------
 
 st.markdown("---")
@@ -226,4 +222,68 @@ if token_input:
         fig2,
         use_container_width=True
     )
-st.caption("Built with FastAPI + Streamlit + Blockchain APIs")
+st.caption("Built with FastAPI + Streamlit + Blockchain APIs")        
+# ---------------- WHALE TRACKER ----------------
+
+st.markdown("---")
+
+st.header("🐋 Whale Tracker")
+
+st.write("Tracking large Ethereum wallet activity")
+
+whale_api = "http://127.0.0.1:8000/api/whales"
+
+whale_response = requests.get(whale_api)
+
+whale_data = whale_response.json()
+
+whale_transactions = whale_data.get("result", [])
+
+if whale_transactions:
+
+    whale_table = []
+
+    for tx in whale_transactions[:10]:
+
+        whale_table.append({
+            "Hash": tx["hash"][:12] + "...",
+            "From": tx["from"][:10] + "...",
+            "To": tx["to"][:10] + "...",
+            "Value (ETH)": round(
+                int(tx["value"]) / 10**18,
+                4
+            )
+        })
+
+    whale_df = pd.DataFrame(whale_table)
+
+    st.dataframe(
+        whale_df,
+        use_container_width=True
+    )
+
+    whale_chart = pd.DataFrame({
+        "Transaction": range(1, len(whale_table)+1),
+        "ETH Value": [
+            row["Value (ETH)"]
+            for row in whale_table
+        ]
+    })
+
+    fig3 = px.line(
+        whale_chart,
+        x="Transaction",
+        y="ETH Value",
+        title="Whale Transaction Activity"
+    )
+
+    st.plotly_chart(
+        fig3,
+        use_container_width=True
+    )
+
+else:
+    st.warning("No whale activity found")
+# ---------------- FOOTER ----------------
+
+st.markdown("---")

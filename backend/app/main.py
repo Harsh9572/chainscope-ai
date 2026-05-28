@@ -78,3 +78,28 @@ def token_analytics(token_id: str):
         "high_24h": data["market_data"]["high_24h"]["usd"],
         "low_24h": data["market_data"]["low_24h"]["usd"]
     }
+# ---------------- WHALE TRACKER ----------------
+
+@app.get("/api/whales")
+def whale_tracker():
+
+    whale_wallet = "0x28C6c06298d514Db089934071355E5743bf21d60"
+
+    url = "https://api.etherscan.io/v2/api"
+
+    params = {
+        "chainid": 1,
+        "module": "account",
+        "action": "txlist",
+        "address": whale_wallet,
+        "startblock": 0,
+        "endblock": 99999999,
+        "page": 1,
+        "offset": 15,
+        "sort": "desc",
+        "apikey": ETHERSCAN_API_KEY
+    }
+
+    response = requests.get(url, params=params)
+
+    return response.json()
