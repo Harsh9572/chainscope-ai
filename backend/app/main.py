@@ -103,3 +103,28 @@ def whale_tracker():
     response = requests.get(url, params=params)
 
     return response.json()
+@app.get("/api/insights/{token_id}")
+def token_insights(token_id: str):
+
+    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+
+    response = requests.get(url)
+
+    data = response.json()
+
+    market_cap = data["market_data"]["market_cap"]["usd"]
+    volume = data["market_data"]["total_volume"]["usd"]
+
+    if volume > 1000000000:
+        insight = "High trading activity detected. Market participation is strong."
+
+    elif volume > 100000000:
+        insight = "Moderate trading activity observed."
+
+    else:
+        insight = "Relatively low trading activity."
+
+    return {
+        "token": data["name"],
+        "insight": insight
+    }

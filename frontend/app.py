@@ -284,6 +284,33 @@ if whale_transactions:
 
 else:
     st.warning("No whale activity found")
+# ---------------- AI INSIGHTS ----------------
+
+st.markdown("---")
+
+st.header("🧠 AI Blockchain Insights")
+
+ai_token = st.text_input(
+    "Enter Token For AI Insight"
+)
+
+if ai_token:
+
+    insight_api = (
+        f"http://127.0.0.1:8000/api/insights/{ai_token}"
+    )
+
+    insight_response = requests.get(insight_api)
+
+    insight_data = insight_response.json()
+
+    st.success(
+        f"Insight for {insight_data['token']}"
+    )
+
+    st.info(
+        insight_data["insight"]
+    )    
 # ---------------- FOOTER ----------------
 
 st.markdown("---")
