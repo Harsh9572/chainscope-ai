@@ -92,7 +92,7 @@ fig = px.bar(
 
 fig.update_traces(textposition="outside")
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 # ---------------- MARKET TABLE ----------------
 
@@ -103,7 +103,7 @@ table_data = pd.DataFrame({
     "Price (USD)": [btc_price, eth_price]
 })
 
-st.dataframe(table_data, use_container_width=True)
+st.dataframe(table_data, width="stretch")
 # ---------------- WALLET ANALYZER ----------------
 
 st.markdown("---")
@@ -146,7 +146,7 @@ if wallet_address:
 
         st.dataframe(
             tx_df,
-            use_container_width=True
+            width="stretch"
         )
 
     else:
@@ -220,7 +220,7 @@ if token_input:
 
     st.plotly_chart(
         fig2,
-        use_container_width=True
+        width="stretch"
     )
 st.caption("Built with FastAPI + Streamlit + Blockchain APIs")        
 # ---------------- WHALE TRACKER ----------------
@@ -259,7 +259,7 @@ if whale_transactions:
 
     st.dataframe(
         whale_df,
-        use_container_width=True
+        width="stretch"
     )
 
     whale_chart = pd.DataFrame({
@@ -279,7 +279,7 @@ if whale_transactions:
 
     st.plotly_chart(
         fig3,
-        use_container_width=True
+        width="stretch"
     )
 
 else:
@@ -310,7 +310,50 @@ if ai_token:
 
     st.info(
         insight_data["insight"]
-    )    
+    ) 
+# ---------------- RISK ASSESSMENT ----------------
+
+st.markdown("---")
+
+st.header("🛡️ Token Risk Assessment")
+
+risk_token = st.text_input(
+    "Enter Token For Risk Analysis",
+    key="risk_token"
+)
+
+if risk_token:
+
+    try:
+
+        risk_api = (
+            f"http://127.0.0.1:8000/api/risk/{risk_token}"
+        )
+
+        risk_response = requests.get(risk_api)
+
+        risk_data = risk_response.json()
+
+        st.success(
+            f"Risk Analysis for {risk_data['token']}"
+        )
+
+        risk = risk_data["risk"]
+
+        if risk == "Low Risk":
+            st.success(f"Risk Level: {risk}")
+
+        elif risk == "Medium Risk":
+            st.warning(f"Risk Level: {risk}")
+
+        else:
+            st.error(f"Risk Level: {risk}")
+
+    except Exception as e:
+
+        st.error(
+            f"Unable to perform risk analysis: {e}"
+        )       
 # ---------------- FOOTER ----------------
 
 st.markdown("---")

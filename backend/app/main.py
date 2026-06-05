@@ -128,3 +128,30 @@ def token_insights(token_id: str):
         "token": data["name"],
         "insight": insight
     }
+@app.get("/api/risk/{token_id}")
+def risk_score(token_id: str):
+
+    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+
+    response = requests.get(url)
+
+    data = response.json()
+
+    market_cap = data["market_data"]["market_cap"]["usd"]
+    volume = data["market_data"]["total_volume"]["usd"]
+
+    if market_cap > 10000000000 and volume > 1000000000:
+        risk = "Low Risk"
+
+    elif market_cap > 1000000000:
+        risk = "Medium Risk"
+
+    else:
+        risk = "High Risk"
+
+    return {
+        "token": data["name"],
+        "risk": risk,
+        "market_cap": market_cap,
+        "volume": volume
+    }
