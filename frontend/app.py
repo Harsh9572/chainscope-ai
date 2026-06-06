@@ -52,7 +52,15 @@ backend_url = "http://127.0.0.1:8000/api/prices"
 
 response = requests.get(backend_url)
 
+if response.status_code != 200:
+    st.error("Unable to fetch market data.")
+    st.stop()
+
 data = response.json()
+
+if "bitcoin" not in data or "ethereum" not in data:
+    st.error("Market data unavailable.")
+    st.stop()
 
 btc_price = data["bitcoin"]["usd"]
 eth_price = data["ethereum"]["usd"]
@@ -119,8 +127,14 @@ if wallet_address:
     wallet_api = f"http://127.0.0.1:8000/api/wallet/{wallet_address}"
 
     wallet_response = requests.get(wallet_api)
+    if wallet_response.status_code != 200:
+        st.error("Unable to fetch wallet data.")
+        st.stop()
 
     wallet_data = wallet_response.json()
+    if wallet_data.get("status") == "0":
+        st.warning("Invalid wallet address or no transactions found.")
+        st.stop()
 
     transactions = wallet_data.get("result", [])
 
@@ -151,7 +165,7 @@ if wallet_address:
 
     else:
         st.warning("No transactions found")
-# ---------------- TOKEN ANALYTICS ----------------
+# ---------------- TOKEN ANALYTICS ---------------
 
 st.markdown("---")
 
@@ -161,68 +175,84 @@ token_input = st.text_input(
     "Enter Token ID (example: bitcoin, ethereum, solana)"
 )
 
+token_input = token_input.strip().lower()
+
 if token_input:
 
     token_api = f"http://127.0.0.1:8000/api/token/{token_input}"
 
     token_response = requests.get(token_api)
 
-    token_data = token_response.json()
+    if token_response.status_code != 200:
 
-    st.success(f"Showing analytics for {token_data['name']}")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric(
-            "Current Price",
-            f"${token_data['current_price']:,}"
+        st.error(
+            "Token not found. Try: bitcoin, ethereum, solana or dogecoin."
         )
 
-        st.metric(
-            "24H High",
-            f"${token_data['high_24h']:,}"
-        )
+    else:
 
-    with col2:
-        st.metric(
-            "Market Cap",
-            f"${token_data['market_cap']:,}"
-        )
+        token_data = token_response.json()
 
-        st.metric(
-            "24H Low",
-            f"${token_data['low_24h']:,}"
-        )
+        if "error" in token_data:
 
-    st.metric(
-        "Total Volume",
-        f"${token_data['total_volume']:,}"
-    )
+            st.error(
+                "Token not found. Please check spelling."
+            )
 
-    token_chart = pd.DataFrame({
-        "Metric": [
-            "Market Cap",
-            "Volume"
-        ],
-        "Value": [
-            token_data["market_cap"],
-            token_data["total_volume"]
-        ]
-    })
+        else:
 
-    fig2 = px.bar(
-        token_chart,
-        x="Metric",
-        y="Value",
-        title=f"{token_data['name']} Analytics"
-    )
+            st.success(
+                f"Showing analytics for {token_data['name']}"
+            )
 
-    st.plotly_chart(
-        fig2,
-        width="stretch"
-    )
-st.caption("Built with FastAPI + Streamlit + Blockchain APIs")        
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric(
+                    "Current Price",
+                    f"${token_data['current_price']:,}"
+                )
+
+                st.metric(
+                    "24H High",
+                    f"${token_data['high_24h']:,}"
+                )
+
+            with col2:
+                st.metric(
+                    "Market Cap",
+                    f"${token_data['market_cap']:,}"
+                )
+
+                st.metric(
+                    "24H Low",
+                    f"${token_data['low_24h']:,}"
+                )
+
+            st.metric(
+                "Total Volume",
+                f"${token_data['total_volume']:,}"
+            )
+
+            token_chart = pd.DataFrame({
+                "Metric": ["Market Cap", "Volume"],
+                "Value": [
+                    token_data["market_cap"],
+                    token_data["total_volume"]
+                ]
+            })
+
+            fig2 = px.bar(
+                token_chart,
+                x="Metric",
+                y="Value",
+                title=f"{token_data['name']} Analytics"
+            )
+
+            st.plotly_chart(
+                fig2,
+                width="stretch"
+            )       
 # ---------------- WHALE TRACKER ----------------
 
 st.markdown("---")
@@ -294,6 +324,8 @@ ai_token = st.text_input(
     "Enter Token For AI Insight"
 )
 
+ai_token = ai_token.strip().lower()
+
 if ai_token:
 
     insight_api = (
@@ -302,15 +334,23 @@ if ai_token:
 
     insight_response = requests.get(insight_api)
 
-    insight_data = insight_response.json()
+    if insight_response.status_code != 200:
 
-    st.success(
-        f"Insight for {insight_data['token']}"
-    )
+        st.error(
+            "Unable to generate insights. Check token name."
+        )
 
-    st.info(
-        insight_data["insight"]
-    ) 
+    else:
+
+        insight_data = insight_response.json()
+
+        st.success(
+            f"Insight for {insight_data['token']}"
+        )
+
+        st.info(
+            insight_data["insight"]
+        )
 # ---------------- RISK ASSESSMENT ----------------
 
 st.markdown("---")
@@ -321,6 +361,7 @@ risk_token = st.text_input(
     "Enter Token For Risk Analysis",
     key="risk_token"
 )
+risk_token = risk_token.strip().lower()
 
 if risk_token:
 
@@ -331,6 +372,9 @@ if risk_token:
         )
 
         risk_response = requests.get(risk_api)
+        if risk_response.status_code != 200:
+            st.error("Unable to perform risk analysis.")
+            st.stop()
 
         risk_data = risk_response.json()
 
