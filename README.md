@@ -46,7 +46,7 @@ ChainScope AI is a blockchain analytics platform built using Python, FastAPI, an
 
 ### Dashboard
 
-![Dashboard](screenshots/dashbors%20chaincodeai.png)
+![Dashboard](screenshots/dashboard.png)
 
 ### Main UI
 
