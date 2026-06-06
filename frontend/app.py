@@ -357,3 +357,4 @@ if risk_token:
 # ---------------- FOOTER ----------------
 
 st.markdown("---")
+st.caption("Built with FastAPI + Streamlit + Blockchain APIs")
