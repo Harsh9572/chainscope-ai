@@ -1,48 +1,65 @@
 # 🚀 ChainScope AI
 
-ChainScope AI is a blockchain analytics platform built using Python, FastAPI, and Streamlit. The platform combines wallet intelligence, token analytics, whale tracking, risk assessment, and AI-powered insights into a single dashboard.
+A Real-Time Blockchain Intelligence Platform built using Python, FastAPI, Streamlit, CoinGecko API, and Etherscan API.
 
-## Features
-
-### 📊 Market Dashboard
-
-* Live Bitcoin and Ethereum price tracking
-* Interactive charts and analytics
-* Real-time market overview
-
-### 🧠 Wallet Intelligence Analyzer
-
-* Ethereum wallet transaction analysis
-* Transaction history tracking
-* Blockchain activity monitoring
-
-### 📈 Token Analytics
-
-* Token search and analytics
-* Market capitalization
-* Trading volume
-* 24-hour high and low prices
-
-### 🐋 Whale Tracker
-
-* Large wallet activity monitoring
-* Whale transaction tracking
-* Blockchain activity visualization
-
-### 🤖 AI Blockchain Insights
-
-* Automated market observations
-* Token activity interpretation
-* Simplified blockchain insights
-
-### 🛡️ Risk Assessment
-
-* Token risk evaluation
-* Market-cap and volume-based scoring
+ChainScope AI provides cryptocurrency market analytics, wallet intelligence, whale tracking, AI-powered insights, and token risk assessment through an interactive dashboard.
 
 ---
 
-## Screenshots
+# 🌐 Live Demo
+
+### Frontend
+
+https://chainscope-ai-b3hrzzz4t4enjnfcoayzfn.streamlit.app/
+
+### Backend API Documentation
+
+https://chainscope-ai-ljoa.onrender.com/docs
+
+---
+
+# 📌 Key Features
+
+## 📊 Real-Time Market Dashboard
+
+* Live Bitcoin and Ethereum price tracking
+* Interactive charts and visualizations
+* Market overview dashboard
+
+## 🧠 Wallet Intelligence Analyzer
+
+* Ethereum wallet transaction analysis
+* Transaction history monitoring
+* Wallet activity insights
+
+## 📈 Token Analytics
+
+* Current token price tracking
+* Market capitalization analysis
+* Trading volume metrics
+* 24-hour high and low statistics
+
+## 🐋 Whale Tracker
+
+* Large Ethereum transaction monitoring
+* Whale wallet activity tracking
+* Transaction visualization dashboard
+
+## 🤖 AI Blockchain Insights
+
+* Automated blockchain insights
+* Market behavior interpretation
+* Token activity analysis
+
+## 🛡️ Risk Assessment
+
+* Token risk evaluation
+* Market-cap-based analysis
+* Volume-based risk scoring
+
+---
+
+# 🖼️ Screenshots
 
 ### Dashboard
 
@@ -82,71 +99,146 @@ ChainScope AI is a blockchain analytics platform built using Python, FastAPI, an
 
 ---
 
-## Architecture
+# 🏗️ System Architecture
 
+```text
 User
-↓
+  │
+  ▼
 Streamlit Frontend
-↓
+  │
+  ▼
 FastAPI Backend
-↓
-Etherscan API + CoinGecko API
+  │
+  ├── CoinGecko API
+  └── Etherscan API
+```
 
 ---
 
-## Tech Stack
+# ⚙️ Technology Stack
+
+### Backend
 
 * Python
 * FastAPI
+* REST APIs
+
+### Frontend
+
 * Streamlit
 * Plotly
 * Pandas
-* Etherscan API
+
+### APIs
+
 * CoinGecko API
+* Etherscan API
+
+### Deployment
+
+* Render
+* Streamlit Community Cloud
+
+### Version Control
+
 * Git
 * GitHub
 
 ---
 
-## Project Structure
+# 📂 Project Structure
 
 ```text
 chainscope-ai/
+│
+├── requirements.txt
+│
 ├── backend/
 │   ├── app/
-│   ├── venv/
-│   ├── .env
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── .env
+│
 ├── frontend/
 │   └── app.py
+│
 ├── screenshots/
+│
 └── README.md
 ```
 
-## Installation
+---
 
-1. Clone the repository
-2. Create and activate a virtual environment
-3. Install dependencies from requirements.txt
-4. Configure API keys in .env
-5. Run FastAPI backend
-6. Run Streamlit frontend
+# 🚀 Deployment
+
+### Frontend Hosting
+
+Streamlit Community Cloud
+
+### Backend Hosting
+
+Render
+
+### Source Control
+
+GitHub
 
 ---
 
-## Future Scope
+# 🧩 Challenges Faced
+
+* Integrating multiple blockchain APIs
+* Managing API response failures
+* Handling invalid user inputs
+* Building a responsive analytics dashboard
+* Deploying frontend and backend separately
+
+---
+
+# ✅ Solutions Implemented
+
+* Added robust error handling
+* Implemented token validation
+* Improved user experience with friendly error messages
+* Connected cloud-hosted frontend and backend
+* Created deployment-ready architecture
+
+---
+
+# 📚 Learning Outcomes
+
+Through this project, I gained hands-on experience with:
+
+* API Integration
+* Backend Development with FastAPI
+* Frontend Development using Streamlit
+* Data Visualization with Plotly
+* Cloud Deployment
+* Git & GitHub Workflow
+* Error Handling and Debugging
+
+---
+
+# 🔮 Future Improvements
 
 * Multi-chain support
 * Portfolio tracking
-* Real-time alerts
-* Advanced risk scoring
-* Machine learning insights
+* Real-time alerts and notifications
+* User authentication system
+* Advanced AI-powered blockchain analytics
+* Historical trend analysis
 
 ---
 
-## Author
+# 👨‍💻 Author
 
-Harsh Kumar
+**Harsh Kumar**
 
 GitHub:
 https://github.com/Harsh9572/chainscope-ai
+
+---
+
+## ⭐ Support
+
+If you found this project useful, consider giving it a star on GitHub.
