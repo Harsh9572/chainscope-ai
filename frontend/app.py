@@ -48,7 +48,7 @@ if st.button("🔄 Refresh Data"):
 
 # ---------------- FETCH DATA ----------------
 
-backend_url = "http://127.0.0.1:8000/api/prices"
+backend_url = "https://chainscope-ai-ljoa.onrender.com/api/prices"
 
 response = requests.get(backend_url)
 
@@ -124,7 +124,7 @@ wallet_address = st.text_input(
 
 if wallet_address:
 
-    wallet_api = f"http://127.0.0.1:8000/api/wallet/{wallet_address}"
+    wallet_api = f"https://chainscope-ai-ljoa.onrender.com/api/wallet/{wallet_address}"
 
     wallet_response = requests.get(wallet_api)
     if wallet_response.status_code != 200:
@@ -179,7 +179,7 @@ token_input = token_input.strip().lower()
 
 if token_input:
 
-    token_api = f"http://127.0.0.1:8000/api/token/{token_input}"
+    token_api = f"https://chainscope-ai-ljoa.onrender.com/api/token/{token_input}"
 
     token_response = requests.get(token_api)
 
@@ -261,7 +261,7 @@ st.header("🐋 Whale Tracker")
 
 st.write("Tracking large Ethereum wallet activity")
 
-whale_api = "http://127.0.0.1:8000/api/whales"
+whale_api = "https://chainscope-ai-ljoa.onrender.com/api/whales"
 
 whale_response = requests.get(whale_api)
 
@@ -329,7 +329,7 @@ ai_token = ai_token.strip().lower()
 if ai_token:
 
     insight_api = (
-        f"http://127.0.0.1:8000/api/insights/{ai_token}"
+        f"https://chainscope-ai-ljoa.onrender.com/api/insights/{ai_token}"
     )
 
     insight_response = requests.get(insight_api)
@@ -368,7 +368,7 @@ if risk_token:
     try:
 
         risk_api = (
-            f"http://127.0.0.1:8000/api/risk/{risk_token}"
+            f"https://chainscope-ai-ljoa.onrender.com/api/risk/{risk_token}"
         )
 
         risk_response = requests.get(risk_api)
