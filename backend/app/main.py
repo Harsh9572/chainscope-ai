@@ -24,37 +24,46 @@ def home():
 @app.get("/api/prices")
 def get_prices():
 
-    url = (
-        "https://api.coingecko.com/api/v3/simple/price"
-        "?ids=bitcoin,ethereum&vs_currencies=usd"
-    )
-
     try:
-        response = requests.get(url, timeout=10)
 
-        if response.status_code != 200:
-            return {
-                "bitcoin": {"usd": 0},
-                "ethereum": {"usd": 0},
-                "message": "Rate limit reached"
-            }
+        btc_response = requests.get(
+            "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+            timeout=10
+        )
 
-        data = response.json()
+        eth_response = requests.get(
+            "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
+            timeout=10
+        )
 
-        if "status" in data and "error_code" in data["status"]:
-            return {
-                "bitcoin": {"usd": 0},
-                "ethereum": {"usd": 0},
-                "message": "Rate limit reached"
-            }
+        btc_data = btc_response.json()
+        eth_data = eth_response.json()
 
-        return data
-
-    except Exception:
         return {
-            "bitcoin": {"usd": 0},
-            "ethereum": {"usd": 0},
-            "message": "API unavailable"
+            "bitcoin": {
+                "usd": round(
+                    float(btc_data["price"]),
+                    2
+                )
+            },
+            "ethereum": {
+                "usd": round(
+                    float(eth_data["price"]),
+                    2
+                )
+            }
+        }
+
+    except Exception as e:
+
+        return {
+            "bitcoin": {
+                "usd": 0
+            },
+            "ethereum": {
+                "usd": 0
+            },
+            "error": str(e)
         }
 
 # ---------------- WALLET ANALYZER ----------------
