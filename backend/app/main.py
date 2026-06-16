@@ -24,16 +24,38 @@ def home():
 @app.get("/api/prices")
 def get_prices():
 
-    url = "https://api.coingecko.com/api/v3/simple/price"
+    url = (
+        "https://api.coingecko.com/api/v3/simple/price"
+        "?ids=bitcoin,ethereum&vs_currencies=usd"
+    )
 
-    params = {
-        "ids": "bitcoin,ethereum",
-        "vs_currencies": "usd"
-    }
+    try:
+        response = requests.get(url, timeout=10)
 
-    response = requests.get(url, params=params)
+        if response.status_code != 200:
+            return {
+                "bitcoin": {"usd": 0},
+                "ethereum": {"usd": 0},
+                "message": "Rate limit reached"
+            }
 
-    return response.json()
+        data = response.json()
+
+        if "status" in data and "error_code" in data["status"]:
+            return {
+                "bitcoin": {"usd": 0},
+                "ethereum": {"usd": 0},
+                "message": "Rate limit reached"
+            }
+
+        return data
+
+    except Exception:
+        return {
+            "bitcoin": {"usd": 0},
+            "ethereum": {"usd": 0},
+            "message": "API unavailable"
+        }
 
 # ---------------- WALLET ANALYZER ----------------
 
