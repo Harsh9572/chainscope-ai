@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import requests
 import os
 import re
+import time
+import threading
 import logging
 from dotenv import load_dotenv
 
@@ -34,16 +36,80 @@ COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/{}"
 
 WALLET_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
+# ---------------- COINGECKO CACHE ----------------
+# CoinGecko's free tier has a very low, shared rate limit. Token Analytics,
+# AI Insights, and Risk Assessment all request the same token independently,
+# and a Streamlit rerun can re-trigger all three at once, so we cache
+# successful lookups briefly and reuse them across all three endpoints.
+_COINGECKO_CACHE_TTL = 45  # seconds
+_coingecko_cache: dict[str, dict] = {}
+_coingecko_cache_lock = threading.Lock()
+
+
+def _get_cached_coingecko(token_id: str):
+    with _coingecko_cache_lock:
+        entry = _coingecko_cache.get(token_id)
+    if entry and (time.time() - entry["ts"]) < _COINGECKO_CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _get_stale_coingecko(token_id: str):
+    """Return cached data regardless of age, used as a rate-limit fallback."""
+    with _coingecko_cache_lock:
+        entry = _coingecko_cache.get(token_id)
+    return entry["data"] if entry else None
+
+
+def _set_cached_coingecko(token_id: str, data: dict):
+    with _coingecko_cache_lock:
+        _coingecko_cache[token_id] = {"data": data, "ts": time.time()}
+
+
+# ---------------- ETHERSCAN CACHE ----------------
+# Etherscan's free tier allows ~5 calls/sec, and the Whale Tracker in
+# particular hits the same fixed address on every Streamlit rerun, so we
+# cache successful txlist lookups briefly per (address, offset) and fall
+# back to stale data if a fresh call gets rate-limited.
+_ETHERSCAN_CACHE_TTL = 20  # seconds
+_etherscan_cache: dict[tuple, dict] = {}
+_etherscan_cache_lock = threading.Lock()
+
+
+def _get_cached_etherscan(key: tuple):
+    with _etherscan_cache_lock:
+        entry = _etherscan_cache.get(key)
+    if entry and (time.time() - entry["ts"]) < _ETHERSCAN_CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _get_stale_etherscan(key: tuple):
+    """Return cached data regardless of age, used as a rate-limit fallback."""
+    with _etherscan_cache_lock:
+        entry = _etherscan_cache.get(key)
+    return entry["data"] if entry else None
+
+
+def _set_cached_etherscan(key: tuple, data: dict):
+    with _etherscan_cache_lock:
+        _etherscan_cache[key] = {"data": data, "ts": time.time()}
+
 
 # ---------------- HELPERS ----------------
 
 def fetch_etherscan_txlist(address: str, offset: int = 10):
-    """Call Etherscan txlist endpoint with proper error handling."""
+    """Call Etherscan txlist endpoint with caching and proper error handling."""
     if not ETHERSCAN_API_KEY:
         raise HTTPException(
             status_code=500,
             detail="Server misconfiguration: ETHERSCAN_API_KEY is not set."
         )
+
+    cache_key = (address.lower(), offset)
+    cached = _get_cached_etherscan(cache_key)
+    if cached is not None:
+        return cached
 
     params = {
         "chainid": 1,
@@ -60,8 +126,33 @@ def fetch_etherscan_txlist(address: str, offset: int = 10):
 
     try:
         response = requests.get(ETHERSCAN_URL, params=params, timeout=10)
+    except requests.exceptions.RequestException as e:
+        stale = _get_stale_etherscan(cache_key)
+        if stale is not None:
+            logger.warning(f"Etherscan unreachable; serving stale cache for {address}.")
+            return stale
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach Etherscan: {str(e)}"
+        )
+
+    if response.status_code == 429:
+        stale = _get_stale_etherscan(cache_key)
+        if stale is not None:
+            logger.warning(f"Etherscan rate-limited; serving stale cache for {address}.")
+            return stale
+        raise HTTPException(
+            status_code=429,
+            detail="Etherscan rate limit exceeded. Please try again in a moment."
+        )
+
+    try:
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
+        stale = _get_stale_etherscan(cache_key)
+        if stale is not None:
+            logger.warning(f"Etherscan error; serving stale cache for {address}.")
+            return stale
         raise HTTPException(
             status_code=502,
             detail=f"Failed to reach Etherscan: {str(e)}"
@@ -69,20 +160,41 @@ def fetch_etherscan_txlist(address: str, offset: int = 10):
 
     data = response.json()
 
-    # Etherscan returns status "0" with a message on errors (bad key, no txs, etc.)
-    if isinstance(data, dict) and data.get("status") == "0" and data.get("message") not in (
-        "No transactions found",
-    ):
+    # Etherscan returns HTTP 200 with status "0" on both real errors and
+    # its own rate-limit message ("Max rate limit reached"), so we check
+    # the message body itself rather than the status code.
+    if isinstance(data, dict) and data.get("status") == "0":
+        message = data.get("message", "")
+
+        if message == "No transactions found":
+            _set_cached_etherscan(cache_key, data)
+            return data
+
+        if "rate limit" in message.lower():
+            stale = _get_stale_etherscan(cache_key)
+            if stale is not None:
+                logger.warning(f"Etherscan rate-limited; serving stale cache for {address}.")
+                return stale
+            raise HTTPException(
+                status_code=429,
+                detail="Etherscan rate limit exceeded. Please try again in a moment."
+            )
+
         raise HTTPException(
             status_code=502,
-            detail=f"Etherscan error: {data.get('message', 'Unknown error')}"
+            detail=f"Etherscan error: {message or 'Unknown error'}"
         )
 
+    _set_cached_etherscan(cache_key, data)
     return data
 
 
 def fetch_coingecko_token(token_id: str):
-    """Call CoinGecko coin endpoint with proper error handling."""
+    """Call CoinGecko coin endpoint with caching and proper error handling."""
+    cached = _get_cached_coingecko(token_id)
+    if cached is not None:
+        return cached
+
     url = COINGECKO_URL.format(token_id)
 
     try:
@@ -99,6 +211,16 @@ def fetch_coingecko_token(token_id: str):
             detail=f"Token '{token_id}' not found on CoinGecko."
         )
 
+    if response.status_code == 429:
+        stale = _get_stale_coingecko(token_id)
+        if stale is not None:
+            logger.warning(f"CoinGecko rate-limited; serving stale cache for '{token_id}'.")
+            return stale
+        raise HTTPException(
+            status_code=429,
+            detail="CoinGecko rate limit exceeded. Please try again in a moment."
+        )
+
     if response.status_code != 200:
         raise HTTPException(
             status_code=502,
@@ -108,6 +230,10 @@ def fetch_coingecko_token(token_id: str):
     data = response.json()
 
     if "status" in data:
+        stale = _get_stale_coingecko(token_id)
+        if stale is not None:
+            logger.warning(f"CoinGecko rate-limited; serving stale cache for '{token_id}'.")
+            return stale
         raise HTTPException(
             status_code=429,
             detail=data["status"].get(
@@ -122,6 +248,7 @@ def fetch_coingecko_token(token_id: str):
             detail=f"CoinGecko response missing market data for '{token_id}'."
         )
 
+    _set_cached_coingecko(token_id, data)
     return data
 
 

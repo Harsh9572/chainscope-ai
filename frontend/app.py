@@ -4,7 +4,10 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-# ---------------- PAGE CONFIG ----------------
+# ---------------- CONFIG ----------------
+
+BASE_URL = "https://chainscope-ai-ljoa.onrender.com"
+REQUEST_TIMEOUT = 15
 
 st.set_page_config(
     page_title="ChainScope AI",
@@ -12,11 +15,50 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ---------------- HELPER ----------------
+
+def api_get(path: str):
+    """
+    Call the backend and return (ok, data, error_message).
+    Handles network failures and non-200 responses (which now carry
+    a {"detail": "..."} body from FastAPI's HTTPException).
+    """
+    url = f"{BASE_URL}{path}"
+    try:
+        response = requests.get(url, timeout=REQUEST_TIMEOUT)
+    except requests.exceptions.RequestException as e:
+        return False, None, f"Could not reach backend: {e}"
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return False, None, "Backend returned an invalid response."
+
+    if response.status_code != 200:
+        detail = payload.get("detail", "Request failed.") if isinstance(payload, dict) else "Request failed."
+        return False, payload, detail
+
+    return True, payload, None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def cached_api_get(path: str):
+    """
+    Cached wrapper for token-lookup endpoints (analytics/insights/risk).
+    Streamlit reruns the whole script on every widget interaction, so
+    without this, typing in one box re-fetches every other section too —
+    tripling calls to CoinGecko's low-rate-limit free tier. Not used for
+    the live price ticker, which should always be fresh.
+    """
+    return api_get(path)
+
+
 # ---------------- SIDEBAR ----------------
 
 st.sidebar.title("🚀 ChainScope AI")
 
-st.sidebar.success("Connected to Blockchain APIs")
+st.sidebar.success("Backend Connected")
 
 st.sidebar.markdown("---")
 
@@ -46,20 +88,21 @@ st.info("Live crypto market tracking enabled")
 if st.button("🔄 Refresh Data"):
     st.rerun()
 
-# ---------------- FETCH DATA ----------------
+# ---------------- FETCH DATA (PRICES) ----------------
 
-backend_url = "https://chainscope-ai-ljoa.onrender.com/api/prices"
+ok, data, error = api_get("/api/prices")
 
-response = requests.get(backend_url)
-
-if response.status_code != 200:
-    st.error("Unable to fetch market data.")
+if not ok:
+    st.error(error or "Unable to fetch market data.")
     st.stop()
 
-data = response.json()
-
-if "bitcoin" not in data or "ethereum" not in data:
-    st.error("Market data unavailable.")
+# The backend now wraps results in a "success" flag, including on a
+# 200 response, since Binance failures (rate limit/geo-block) are
+# reported this way rather than as an HTTP error.
+if not data.get("success", False):
+    st.error(data.get("message", "Unable to fetch live market prices."))
+    with st.expander("Provider response details"):
+        st.json(data.get("provider_response", data))
     st.stop()
 
 btc_price = data["bitcoin"]["usd"]
@@ -112,6 +155,7 @@ table_data = pd.DataFrame({
 })
 
 st.dataframe(table_data, width="stretch")
+
 # ---------------- WALLET ANALYZER ----------------
 
 st.markdown("---")
@@ -124,19 +168,22 @@ wallet_address = st.text_input(
 
 if wallet_address:
 
-    wallet_api = f"https://chainscope-ai-ljoa.onrender.com/api/wallet/{wallet_address}"
+    ok, wallet_payload, error = cached_api_get(f"/api/wallet/{wallet_address}")
 
-    wallet_response = requests.get(wallet_api)
-    if wallet_response.status_code != 200:
-        st.error("Unable to fetch wallet data.")
+    if not ok:
+        # Covers both the 400 "invalid address format" case and any
+        # 500/502 from a misconfigured or unreachable Etherscan call.
+        st.error(error or "Unable to fetch wallet data.")
         st.stop()
 
-    wallet_data = wallet_response.json()
-    if wallet_data.get("status") == "0":
+    # New shape: {"success": True, "wallet": ..., "transactions": {<etherscan raw>}}
+    etherscan_data = wallet_payload.get("transactions", {})
+
+    if etherscan_data.get("status") == "0" and etherscan_data.get("message") != "No transactions found":
         st.warning("Invalid wallet address or no transactions found.")
         st.stop()
 
-    transactions = wallet_data.get("result", [])
+    transactions = etherscan_data.get("result", [])
 
     if transactions:
 
@@ -145,16 +192,18 @@ if wallet_address:
         tx_table = []
 
         for tx in transactions[:10]:
-
-            tx_table.append({
-                "Hash": tx["hash"][:12] + "...",
-                "From": tx["from"][:10] + "...",
-                "To": tx["to"][:10] + "...",
-                "Value (ETH)": round(
-                    int(tx["value"]) / 10**18,
-                    5
-                )
-            })
+            try:
+                tx_table.append({
+                    "Hash": tx["hash"][:12] + "...",
+                    "From": tx["from"][:10] + "...",
+                    "To": tx["to"][:10] + "...",
+                    "Value (ETH)": round(
+                        int(tx["value"]) / 10**18,
+                        5
+                    )
+                })
+            except (KeyError, ValueError, TypeError):
+                continue
 
         tx_df = pd.DataFrame(tx_table)
 
@@ -165,6 +214,7 @@ if wallet_address:
 
     else:
         st.warning("No transactions found")
+
 # ---------------- TOKEN ANALYTICS ---------------
 
 st.markdown("---")
@@ -179,80 +229,69 @@ token_input = token_input.strip().lower()
 
 if token_input:
 
-    token_api = f"https://chainscope-ai-ljoa.onrender.com/api/token/{token_input}"
+    ok, token_data, error = cached_api_get(f"/api/token/{token_input}")
 
-    token_response = requests.get(token_api)
+    if not ok:
+        st.error(error or "Token not found. Try: bitcoin, ethereum, solana or dogecoin.")
 
-    if token_response.status_code != 200:
-
-        st.error(
-            "Token not found. Try: bitcoin, ethereum, solana or dogecoin."
-        )
+    elif not token_data.get("success", False):
+        st.error(token_data.get("message", "Token not found. Please check spelling."))
 
     else:
 
-        token_data = token_response.json()
+        st.success(
+            f"Showing analytics for {token_data['name']}"
+        )
 
-        if "error" in token_data:
+        col1, col2 = st.columns(2)
 
-            st.error(
-                "Token not found. Please check spelling."
+        with col1:
+            st.metric(
+                "Current Price",
+                f"${token_data.get('current_price', 0):,}"
             )
-
-        else:
-
-            st.success(
-                f"Showing analytics for {token_data['name']}"
-            )
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.metric(
-                    "Current Price",
-                    f"${token_data['current_price']:,}"
-                )
-
-                st.metric(
-                    "24H High",
-                    f"${token_data['high_24h']:,}"
-                )
-
-            with col2:
-                st.metric(
-                    "Market Cap",
-                    f"${token_data['market_cap']:,}"
-                )
-
-                st.metric(
-                    "24H Low",
-                    f"${token_data['low_24h']:,}"
-                )
 
             st.metric(
-                "Total Volume",
-                f"${token_data['total_volume']:,}"
+                "24H High",
+                f"${token_data.get('high_24h', 0):,}"
             )
 
-            token_chart = pd.DataFrame({
-                "Metric": ["Market Cap", "Volume"],
-                "Value": [
-                    token_data["market_cap"],
-                    token_data["total_volume"]
-                ]
-            })
-
-            fig2 = px.bar(
-                token_chart,
-                x="Metric",
-                y="Value",
-                title=f"{token_data['name']} Analytics"
+        with col2:
+            st.metric(
+                "Market Cap",
+                f"${token_data.get('market_cap', 0):,}"
             )
 
-            st.plotly_chart(
-                fig2,
-                width="stretch"
-            )       
+            st.metric(
+                "24H Low",
+                f"${token_data.get('low_24h', 0):,}"
+            )
+
+        st.metric(
+            "Total Volume",
+            f"${token_data.get('total_volume', 0):,}"
+        )
+
+        token_chart = pd.DataFrame({
+            "Metric": ["Market Cap", "Volume"],
+            "Value": [
+                token_data.get("market_cap", 0),
+                token_data.get("total_volume", 0)
+            ]
+        })
+
+        fig2 = px.bar(
+            token_chart,
+            x="Metric",
+            y="Value",
+            title=f"{token_data['name']} Analytics"
+        )
+
+        st.plotly_chart(
+            fig2,
+            width="stretch"
+        )
+
 # ---------------- WHALE TRACKER ----------------
 
 st.markdown("---")
@@ -261,59 +300,65 @@ st.header("🐋 Whale Tracker")
 
 st.write("Tracking large Ethereum wallet activity")
 
-whale_api = "https://chainscope-ai-ljoa.onrender.com/api/whales"
+ok, whale_payload, error = cached_api_get("/api/whales")
 
-whale_response = requests.get(whale_api)
-
-whale_data = whale_response.json()
-
-whale_transactions = whale_data.get("result", [])
-
-if whale_transactions:
-
-    whale_table = []
-
-    for tx in whale_transactions[:10]:
-
-        whale_table.append({
-            "Hash": tx["hash"][:12] + "...",
-            "From": tx["from"][:10] + "...",
-            "To": tx["to"][:10] + "...",
-            "Value (ETH)": round(
-                int(tx["value"]) / 10**18,
-                4
-            )
-        })
-
-    whale_df = pd.DataFrame(whale_table)
-
-    st.dataframe(
-        whale_df,
-        width="stretch"
-    )
-
-    whale_chart = pd.DataFrame({
-        "Transaction": range(1, len(whale_table)+1),
-        "ETH Value": [
-            row["Value (ETH)"]
-            for row in whale_table
-        ]
-    })
-
-    fig3 = px.line(
-        whale_chart,
-        x="Transaction",
-        y="ETH Value",
-        title="Whale Transaction Activity"
-    )
-
-    st.plotly_chart(
-        fig3,
-        width="stretch"
-    )
+if not ok:
+    st.error(error or "Unable to fetch whale data.")
 
 else:
-    st.warning("No whale activity found")
+
+    # New shape: {"success": True, "wallet": ..., "transactions": {<etherscan raw>}}
+    whale_etherscan_data = whale_payload.get("transactions", {})
+    whale_transactions = whale_etherscan_data.get("result", [])
+
+    if whale_transactions:
+
+        whale_table = []
+
+        for tx in whale_transactions[:10]:
+            try:
+                whale_table.append({
+                    "Hash": tx["hash"][:12] + "...",
+                    "From": tx["from"][:10] + "...",
+                    "To": tx["to"][:10] + "...",
+                    "Value (ETH)": round(
+                        int(tx["value"]) / 10**18,
+                        4
+                    )
+                })
+            except (KeyError, ValueError, TypeError):
+                continue
+
+        whale_df = pd.DataFrame(whale_table)
+
+        st.dataframe(
+            whale_df,
+            width="stretch"
+        )
+
+        whale_chart = pd.DataFrame({
+            "Transaction": range(1, len(whale_table) + 1),
+            "ETH Value": [
+                row["Value (ETH)"]
+                for row in whale_table
+            ]
+        })
+
+        fig3 = px.line(
+            whale_chart,
+            x="Transaction",
+            y="ETH Value",
+            title="Whale Transaction Activity"
+        )
+
+        st.plotly_chart(
+            fig3,
+            width="stretch"
+        )
+
+    else:
+        st.warning("No whale activity found")
+
 # ---------------- AI INSIGHTS ----------------
 
 st.markdown("---")
@@ -328,29 +373,34 @@ ai_token = ai_token.strip().lower()
 
 if ai_token:
 
-    insight_api = (
-        f"https://chainscope-ai-ljoa.onrender.com/api/insights/{ai_token}"
-    )
+    ok, insight_data, error = cached_api_get(f"/api/insights/{ai_token}")
 
-    insight_response = requests.get(insight_api)
-
-    if insight_response.status_code != 200:
-
-        st.error(
-            "Unable to generate insights. Check token name."
-        )
+    if not ok:
+        # Backend now raises HTTPException directly for this endpoint
+        # (404 unknown token, 429 rate limited, 502 missing data), so
+        # the detail message from the backend is shown as-is.
+        st.error(error or "Unable to generate insights. Check token name.")
 
     else:
+        if "token" in insight_data and "insight" in insight_data:
 
-        insight_data = insight_response.json()
+            st.success(
+                f"Insight for {insight_data['token']}"
+            )
 
-        st.success(
-            f"Insight for {insight_data['token']}"
-        )
+            st.info(
+                insight_data["insight"]
+            )
 
-        st.info(
-            insight_data["insight"]
-        )
+        else:
+
+            st.error(
+                insight_data.get(
+                    "detail",
+                    "Unable to generate AI insight."
+                )
+            )
+
 # ---------------- RISK ASSESSMENT ----------------
 
 st.markdown("---")
@@ -365,39 +415,39 @@ risk_token = risk_token.strip().lower()
 
 if risk_token:
 
-    try:
+    ok, risk_data, error = cached_api_get(f"/api/risk/{risk_token}")
 
-        risk_api = (
-            f"https://chainscope-ai-ljoa.onrender.com/api/risk/{risk_token}"
-        )
+    if not ok:
+        # Same as insights: this endpoint raises HTTPException on
+        # not-found / rate-limit / missing-data cases.
+        st.error(error or "Unable to perform risk analysis.")
 
-        risk_response = requests.get(risk_api)
-        if risk_response.status_code != 200:
-            st.error("Unable to perform risk analysis.")
-            st.stop()
+    else:
+        if "risk" not in risk_data:
 
-        risk_data = risk_response.json()
-
-        st.success(
-            f"Risk Analysis for {risk_data['token']}"
-        )
-
-        risk = risk_data["risk"]
-
-        if risk == "Low Risk":
-            st.success(f"Risk Level: {risk}")
-
-        elif risk == "Medium Risk":
-            st.warning(f"Risk Level: {risk}")
+            st.error(
+                risk_data.get(
+                    "detail",
+                    "Unable to calculate risk."
+                )
+            )
 
         else:
-            st.error(f"Risk Level: {risk}")
+            st.success(
+                f"Risk Analysis for {risk_data['token']}"
+            )
 
-    except Exception as e:
+            risk = risk_data["risk"]
 
-        st.error(
-            f"Unable to perform risk analysis: {e}"
-        )       
+            if risk == "Low Risk":
+                st.success(f"Risk Level: {risk}")
+
+            elif risk == "Medium Risk":
+                st.warning(f"Risk Level: {risk}")
+
+            else:
+                st.error(f"Risk Level: {risk}")
+
 # ---------------- FOOTER ----------------
 
 st.markdown("---")
