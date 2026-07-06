@@ -1,15 +1,129 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import requests
 import os
+import re
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("chainscope")
+
 app = FastAPI(title="ChainScope AI")
+
+# Allow frontend(s) to call this API. Tighten allow_origins in production.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # API Key
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
+if not ETHERSCAN_API_KEY:
+    logger.warning(
+        "ETHERSCAN_API_KEY is not set. /api/wallet and /api/whales will fail until it is configured."
+    )
+
+ETHERSCAN_URL = "https://api.etherscan.io/v2/api"
+COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/{}"
+
+WALLET_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+
+
+# ---------------- HELPERS ----------------
+
+def fetch_etherscan_txlist(address: str, offset: int = 10):
+    """Call Etherscan txlist endpoint with proper error handling."""
+    if not ETHERSCAN_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfiguration: ETHERSCAN_API_KEY is not set."
+        )
+
+    params = {
+        "chainid": 1,
+        "module": "account",
+        "action": "txlist",
+        "address": address,
+        "startblock": 0,
+        "endblock": 99999999,
+        "page": 1,
+        "offset": offset,
+        "sort": "desc",
+        "apikey": ETHERSCAN_API_KEY,
+    }
+
+    try:
+        response = requests.get(ETHERSCAN_URL, params=params, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach Etherscan: {str(e)}"
+        )
+
+    data = response.json()
+
+    # Etherscan returns status "0" with a message on errors (bad key, no txs, etc.)
+    if isinstance(data, dict) and data.get("status") == "0" and data.get("message") not in (
+        "No transactions found",
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Etherscan error: {data.get('message', 'Unknown error')}"
+        )
+
+    return data
+
+
+def fetch_coingecko_token(token_id: str):
+    """Call CoinGecko coin endpoint with proper error handling."""
+    url = COINGECKO_URL.format(token_id)
+
+    try:
+        response = requests.get(url, timeout=10)
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach CoinGecko: {str(e)}"
+        )
+
+    if response.status_code == 404:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Token '{token_id}' not found on CoinGecko."
+        )
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"CoinGecko returned status {response.status_code}."
+        )
+
+    data = response.json()
+
+    if "status" in data:
+        raise HTTPException(
+            status_code=429,
+            detail=data["status"].get(
+                "error_message",
+                "CoinGecko rate limit exceeded."
+            )
+        )
+
+    if "market_data" not in data:
+        raise HTTPException(
+            status_code=502,
+            detail=f"CoinGecko response missing market data for '{token_id}'."
+        )
+
+    return data
+
 
 # ---------------- HOME ----------------
 
@@ -19,169 +133,173 @@ def home():
         "message": "ChainScope AI Backend Running"
     }
 
+
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy",
+        "service": "ChainScope AI",
+        "version": "1.0.0"
+    }
+
+
 # ---------------- CRYPTO PRICES ----------------
 
 @app.get("/api/prices")
 def get_prices():
-
     try:
-
         btc_response = requests.get(
             "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
             timeout=10
         )
-
         eth_response = requests.get(
             "https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT",
             timeout=10
         )
-
         btc_data = btc_response.json()
         eth_data = eth_response.json()
 
-        return {
-            "bitcoin": {
-                "usd": round(
-                    float(btc_data["price"]),
-                    2
-                )
-            },
-            "ethereum": {
-                "usd": round(
-                    float(eth_data["price"]),
-                    2
-                )
+        if "price" not in btc_data or "price" not in eth_data:
+            return {
+                "success": False,
+                "message": "Unable to fetch live market prices.",
+                "provider_response": {
+                    "bitcoin": btc_data,
+                    "ethereum": eth_data
+                }
             }
+
+        return {
+            "success": True,
+            "bitcoin": {"usd": round(float(btc_data["price"]), 2)},
+            "ethereum": {"usd": round(float(eth_data["price"]), 2)}
         }
 
     except Exception as e:
-
+        logger.error(f"get_prices failed: {e}")
         return {
-            "bitcoin": {
-                "usd": 0
-            },
-            "ethereum": {
-                "usd": 0
-            },
+            "success": False,
+            "bitcoin": {"usd": 0},
+            "ethereum": {"usd": 0},
             "error": str(e)
         }
+
 
 # ---------------- WALLET ANALYZER ----------------
 
 @app.get("/api/wallet/{wallet_address}")
 def wallet_analysis(wallet_address: str):
+    if not WALLET_ADDRESS_RE.match(wallet_address):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Ethereum wallet address format. Expected 0x followed by 40 hex characters."
+        )
 
-    url = "https://api.etherscan.io/v2/api"
-
-    params = {
-        "chainid": 1,
-        "module": "account",
-        "action": "txlist",
-        "address": wallet_address,
-        "startblock": 0,
-        "endblock": 99999999,
-        "page": 1,
-        "offset": 10,
-        "sort": "desc",
-        "apikey": ETHERSCAN_API_KEY
+    return {
+        "success": True,
+        "wallet": wallet_address,
+        "transactions": fetch_etherscan_txlist(wallet_address, 10)
     }
 
-    response = requests.get(url, params=params)
 
-    return response.json()
 # ---------------- TOKEN ANALYTICS ----------------
 
 @app.get("/api/token/{token_id}")
 def token_analytics(token_id: str):
+    try:
+        data = fetch_coingecko_token(token_id)
+        market = data["market_data"]
 
-    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+        return {
+            "success": True,
+            "name": data.get("name"),
+            "symbol": data.get("symbol", "").upper(),
+            "current_price": market.get("current_price", {}).get("usd"),
+            "market_cap": market.get("market_cap", {}).get("usd"),
+            "total_volume": market.get("total_volume", {}).get("usd"),
+            "high_24h": market.get("high_24h", {}).get("usd"),
+            "low_24h": market.get("low_24h", {}).get("usd")
+        }
+    except HTTPException as e:
+        return {
+            "success": False,
+            "message": e.detail,
+            "status_code": e.status_code
+        }
+    except Exception as e:
+        logger.error(f"token_analytics failed for {token_id}: {e}")
+        return {
+            "success": False,
+            "message": "Server error while fetching token analytics.",
+            "error": str(e)
+        }
 
-    response = requests.get(url)
 
-    data = response.json()
-
-    return {
-        "name": data["name"],
-        "symbol": data["symbol"],
-        "current_price": data["market_data"]["current_price"]["usd"],
-        "market_cap": data["market_data"]["market_cap"]["usd"],
-        "total_volume": data["market_data"]["total_volume"]["usd"],
-        "high_24h": data["market_data"]["high_24h"]["usd"],
-        "low_24h": data["market_data"]["low_24h"]["usd"]
-    }
 # ---------------- WHALE TRACKER ----------------
 
 @app.get("/api/whales")
 def whale_tracker():
-
     whale_wallet = "0x28C6c06298d514Db089934071355E5743bf21d60"
-
-    url = "https://api.etherscan.io/v2/api"
-
-    params = {
-        "chainid": 1,
-        "module": "account",
-        "action": "txlist",
-        "address": whale_wallet,
-        "startblock": 0,
-        "endblock": 99999999,
-        "page": 1,
-        "offset": 15,
-        "sort": "desc",
-        "apikey": ETHERSCAN_API_KEY
+    return {
+        "success": True,
+        "wallet": whale_wallet,
+        "transactions": fetch_etherscan_txlist(whale_wallet, offset=15)
     }
 
-    response = requests.get(url, params=params)
 
-    return response.json()
+# ---------------- TOKEN INSIGHTS ----------------
+
 @app.get("/api/insights/{token_id}")
 def token_insights(token_id: str):
+    data = fetch_coingecko_token(token_id)
 
-    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+    market = data["market_data"]
+    volume = market.get("total_volume", {}).get("usd")
 
-    response = requests.get(url)
+    if volume is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Volume data unavailable for '{token_id}'."
+        )
 
-    data = response.json()
-
-    market_cap = data["market_data"]["market_cap"]["usd"]
-    volume = data["market_data"]["total_volume"]["usd"]
-
-    if volume > 1000000000:
+    if volume > 1_000_000_000:
         insight = "High trading activity detected. Market participation is strong."
-
-    elif volume > 100000000:
+    elif volume > 100_000_000:
         insight = "Moderate trading activity observed."
-
     else:
         insight = "Relatively low trading activity."
 
     return {
-        "token": data["name"],
+        "token": data.get("name"),
         "insight": insight
     }
+
+
+# ---------------- RISK SCORE ----------------
+
 @app.get("/api/risk/{token_id}")
 def risk_score(token_id: str):
+    data = fetch_coingecko_token(token_id)
 
-    url = f"https://api.coingecko.com/api/v3/coins/{token_id}"
+    market = data["market_data"]
+    market_cap = market.get("market_cap", {}).get("usd")
+    volume = market.get("total_volume", {}).get("usd")
 
-    response = requests.get(url)
+    if market_cap is None or volume is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Market cap or volume data unavailable for '{token_id}'."
+        )
 
-    data = response.json()
-
-    market_cap = data["market_data"]["market_cap"]["usd"]
-    volume = data["market_data"]["total_volume"]["usd"]
-
-    if market_cap > 10000000000 and volume > 1000000000:
+    if market_cap > 10_000_000_000 and volume > 1_000_000_000:
         risk = "Low Risk"
-
-    elif market_cap > 1000000000:
+    elif market_cap > 1_000_000_000:
         risk = "Medium Risk"
-
     else:
         risk = "High Risk"
 
     return {
-        "token": data["name"],
+        "token": data.get("name"),
         "risk": risk,
         "market_cap": market_cap,
         "volume": volume
