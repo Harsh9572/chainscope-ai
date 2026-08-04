@@ -29,6 +29,7 @@ Full-stack crypto analytics — live prices, wallet intelligence, whale tracking
 - [Project Structure](#-project-structure)
 - [Getting Started](#-getting-started)
 - [Backend Highlights](#-backend-highlights)
+- [Reliability & Rate-Limit Handling](#-reliability--rate-limit-handling)
 - [Screenshots](#️-screenshots)
 - [Deployment](#-deployment)
 - [Challenges Solved](#-challenges-solved)
@@ -42,20 +43,20 @@ Full-stack crypto analytics — live prices, wallet intelligence, whale tracking
 
 **ChainScope AI** is a full-stack blockchain analytics platform that delivers real-time cryptocurrency market intelligence, wallet analysis, whale transaction tracking, AI-generated insights, and token risk assessment through an interactive web dashboard.
 
-Built to demonstrate modern backend development, API integration, cloud deployment, and production-ready engineering practices.
+Built to demonstrate modern backend development, multi-provider API integration, cloud deployment, and production-ready engineering practices.
 
 ---
 
 ## ✨ Features
 
-| Category | Capabilities |
-|---|---|
-| 📈 **Market Dashboard** | Live BTC & ETH prices, interactive visualizations, real-time crypto overview |
-| 🔍 **Wallet Intelligence** | Ethereum wallet analysis, recent transaction history, activity monitoring |
-| 📊 **Token Analytics** | Live price, market cap, trading volume, 24h stats |
-| 🐋 **Whale Tracker** | Large wallet monitoring, recent whale transactions, activity visualization |
-| 🤖 **AI Market Insights** | Automated token analysis, trading interpretation, behavior insights |
-| 🛡️ **Risk Assessment** | Market-cap analysis, volume-based risk evaluation, token risk classification |
+| Category | Capabilities | Data Source |
+|---|---|---|
+| 📈 **Market Dashboard** | Live BTC & ETH prices, interactive visualizations, real-time crypto overview | Binance API |
+| 🔍 **Wallet Intelligence** | Ethereum wallet analysis, recent transaction history, activity monitoring | Etherscan API V2 |
+| 📊 **Token Analytics** | Live price, market cap, trading volume, 24h stats | CoinMarketCap API |
+| 🐋 **Whale Tracker** | Large wallet monitoring, recent whale transactions, activity visualization | Etherscan API V2 |
+| 🤖 **AI Market Insights** | Automated token analysis, trading interpretation, behavior insights | Own backend logic |
+| 🛡️ **Risk Assessment** | Market-cap analysis, volume-based risk evaluation, token risk classification | Own backend logic |
 
 ---
 
@@ -82,9 +83,15 @@ Built to demonstrate modern backend development, API integration, cloud deployme
                FastAPI Backend
          ┌─────────────┼──────────────┐
          ▼             ▼              ▼
-  Binance API   CoinGecko API   Etherscan API
+  Binance API   CoinMarketCap    Etherscan API
+  (live prices)  API (token       V2 (wallets &
+                  metadata)        whale tracking)
          │             │              │
          └─────────────┼──────────────┘
+                       ▼
+        In-Memory TTL Cache (per provider)
+                       ▼
+     Own Backend Logic (AI Insights, Risk Score)
                        ▼
            Blockchain Intelligence
 ```
@@ -99,8 +106,8 @@ Built to demonstrate modern backend development, API integration, cloud deployme
 **Frontend**
 `Streamlit` · `Plotly` · `Pandas`
 
-**Blockchain APIs**
-`Binance API` · `CoinGecko API` · `Etherscan API V2`
+**Blockchain & Market Data APIs**
+`Binance API` · `CoinMarketCap API` · `Etherscan API V2`
 
 **Deployment**
 `Render` · `Streamlit Community Cloud`
@@ -137,7 +144,7 @@ chainscope-ai
 
 ### Prerequisites
 - Python 3.10+
-- API keys for Etherscan (and any other services used)
+- API keys for Etherscan and CoinMarketCap
 
 ### 1. Clone the repository
 ```bash
@@ -155,7 +162,8 @@ pip install -r requirements.txt
 
 Create a `.env` file inside `backend/`:
 ```env
-ETHERSCAN_API_KEY=your_api_key_here
+ETHERSCAN_API_KEY=your_etherscan_api_key_here
+COINMARKETCAP_API_KEY=your_coinmarketcap_api_key_here
 ```
 
 Run the API:
@@ -177,18 +185,27 @@ streamlit run app.py
 
 The backend follows production-ready practices including:
 
-- Modular API architecture
-- Centralized helper functions
-- Input validation
-- Ethereum wallet validation
+- Modular API architecture with centralized provider helper functions
+- Input validation (Ethereum wallet address format, token IDs)
 - Structured logging
-- Environment variable management
-- Robust exception handling
-- API timeout management
-- Health monitoring endpoint
-- Graceful third-party API failure handling
-- Consistent JSON responses
+- Environment variable management for multiple third-party API keys
+- Robust exception handling with consistent JSON error responses
+- API timeout management on every outbound request
+- Health monitoring endpoint (`/health`) for uptime checks
+- Graceful third-party API failure handling (network errors, invalid input, missing data)
+- CORS middleware for frontend access
 - RESTful API design
+
+---
+
+## 🛡️ Reliability & Rate-Limit Handling
+
+Free-tier third-party APIs (CoinMarketCap, Etherscan) have limited request budgets, and a Streamlit dashboard reruns its full script on every user interaction — which can multiply outbound API calls quickly. To keep the app stable in production, the backend adds:
+
+- **In-memory TTL caching** per provider (CoinMarketCap token lookups, Etherscan wallet/whale lookups), so repeated requests for the same token or address within a short window are served from cache instead of hitting the provider again.
+- **Stale-cache fallback** — if a provider rate-limits a fresh request, the backend serves the last known good response for that token/address rather than failing the request outright.
+- **Provider-specific rate-limit detection** — CoinMarketCap's HTTP 429 and error-code responses, and Etherscan's HTTP-200-with-`status:"0"` rate-limit messages, are both detected and handled explicitly.
+- **Normalized response shapes** — all provider responses are flattened into consistent internal fields before reaching the frontend, so the UI never needs to know which provider is behind a given endpoint.
 
 ---
 
@@ -242,14 +259,15 @@ The backend follows production-ready practices including:
 
 During development, several real-world engineering challenges were addressed:
 
-- Third-party API integration
+- Multi-provider third-party API integration (Binance, CoinMarketCap, Etherscan)
 - Production deployment issues
-- API rate-limit handling
+- API rate-limit handling and stale-cache fallback strategy
 - Invalid input validation
 - Cloud deployment debugging
 - Backend reliability improvements
 - Error handling for external services
 - Frontend-backend communication
+- Swapping a core data provider (CoinGecko → CoinMarketCap) without breaking the frontend contract
 
 ---
 
@@ -260,10 +278,11 @@ This project strengthened my practical understanding of:
 - Backend Engineering
 - REST API Development
 - FastAPI
-- Blockchain APIs
+- Blockchain & Market Data APIs
 - Cloud Deployment
 - Data Visualization
 - API Integration
+- Caching & Rate-Limit Strategies
 - Production Debugging
 - Error Handling
 - Git & GitHub Workflow
